@@ -1,10 +1,11 @@
 /**
- * 2007-2020 PrestaShop SA and Contributors
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
  *
  * NOTICE OF LICENSE
  *
  * This source file is subject to the Open Software License (OSL 3.0)
- * that is bundled with this package in the file LICENSE.txt.
+ * that is bundled with this package in the file LICENSE.md.
  * It is also available through the world-wide-web at this URL:
  * https://opensource.org/licenses/OSL-3.0
  * If you did not receive a copy of the license and are unable to
@@ -15,12 +16,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade PrestaShop to newer
  * versions in the future. If you wish to customize PrestaShop for your
- * needs please refer to https://www.prestashop.com for more information.
+ * needs please refer to https://devdocs.prestashop.com/ for more information.
  *
- * @author    PrestaShop SA <contact@prestashop.com>
- * @copyright 2007-2020 PrestaShop SA and Contributors
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
  * @license   https://opensource.org/licenses/OSL-3.0 Open Software License (OSL 3.0)
- * International Registered Trademark & Property of PrestaShop SA
  */
 
 import OrderViewPageMap from '@pages/order/OrderViewPageMap';
@@ -114,7 +114,7 @@ export default class OrderProductRenderer {
       'tr[id^="orderProduct_"]',
     );
     $rows.removeClass('d-none');
-    $(OrderViewPageMap.productsNavPagination).addClass('d-none');
+    $(OrderViewPageMap.productsPagination).addClass('d-none');
 
     const scrollValue = $(scrollTarget).offset().top - $('.header-toolbar').height() - 100;
     $('html,body').animate({scrollTop: scrollValue}, 'slow');
@@ -130,6 +130,7 @@ export default class OrderProductRenderer {
       .detach()
       .appendTo(OrderViewPageMap.productOriginalPosition);
 
+    $(OrderViewPageMap.productsPagination).removeClass('d-none');
     $(OrderViewPageMap.productActionBtn).removeClass('d-none');
     $(
       `${OrderViewPageMap.productAddActionBtn}, ${OrderViewPageMap.productAddRow}`,
@@ -151,7 +152,6 @@ export default class OrderProductRenderer {
     $(OrderViewPageMap.productAddAvailableText).html('');
     $(OrderViewPageMap.productAddLocationText).html('');
     $(OrderViewPageMap.productAddNewInvoiceInfo).addClass('d-none');
-    $(OrderViewPageMap.productAddInvoiceSelect).val(0);
     $(OrderViewPageMap.productAddActionBtn).prop('disabled', true);
   }
 
@@ -190,11 +190,10 @@ export default class OrderProductRenderer {
 
     const startRow = (numPage - 1) * numRowsPerPage + 1;
     const endRow = numPage * numRowsPerPage;
-    $(OrderViewPageMap.productsTable)
-      .find(
-        `tr[id^="orderProduct_"]:nth-child(n+${startRow}):nth-child(-n+${endRow})`,
-      )
-      .removeClass('d-none');
+
+    for (let i = startRow - 1; i < Math.min(endRow, $rows.length); i += 1) {
+      $($rows[i]).removeClass('d-none');
+    }
 
     $customizationRows.each(function () {
       if (
@@ -237,6 +236,33 @@ export default class OrderProductRenderer {
     this.togglePaginationControls();
   }
 
+  updateNumPerPage(numPerPage) {
+    let realNumPerPage = numPerPage;
+    if (realNumPerPage < 1) {
+      realNumPerPage = 1;
+    }
+    const $rows = $(OrderViewPageMap.productsTable).find('tr[id^="orderProduct_"]');
+    const $tablePagination = $(OrderViewPageMap.productsTablePagination);
+    const numPages = Math.ceil($rows.length / realNumPerPage);
+
+    // Update table data fields
+    $tablePagination.data('numPages', numPages);
+    $tablePagination.data('numPerPage', realNumPerPage);
+
+    // Clean all page links, reinsert the removed template
+    const $linkPaginationTemplate = $(OrderViewPageMap.productsTablePaginationTemplate);
+    $(OrderViewPageMap.productsTablePagination).find('li:has(> [data-page])').remove();
+    $(OrderViewPageMap.productsTablePaginationNext).before($linkPaginationTemplate);
+
+    // Add appropriate pages
+    for (let i = 1; i <= numPages; i += 1) {
+      const $linkPagination = $linkPaginationTemplate.clone();
+      $linkPagination.find('span').attr('data-page', i);
+      $linkPagination.find('span').html(i);
+      $linkPaginationTemplate.before($linkPagination.removeClass('d-none'));
+    }
+  }
+
   paginationAddPage(numPage) {
     const $tablePagination = $(OrderViewPageMap.productsTablePagination);
     $tablePagination.data('numPages', numPage);
@@ -274,7 +300,7 @@ export default class OrderProductRenderer {
   toggleProductAddNewInvoiceInfo() {
     $(OrderViewPageMap.productAddNewInvoiceInfo).toggleClass(
       'd-none',
-      $(OrderViewPageMap.productAddInvoiceSelect).val() === 0,
+      parseInt($(OrderViewPageMap.productAddInvoiceSelect).val(), 10) === 0,
     );
   }
 

@@ -1,11 +1,12 @@
 <?php
 /**
- * 2007-2020 PrestaShop SA and Contributors
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
  *
  * NOTICE OF LICENSE
  *
  * This source file is subject to the Open Software License (OSL 3.0)
- * that is bundled with this package in the file LICENSE.txt.
+ * that is bundled with this package in the file LICENSE.md.
  * It is also available through the world-wide-web at this URL:
  * https://opensource.org/licenses/OSL-3.0
  * If you did not receive a copy of the license and are unable to
@@ -16,12 +17,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade PrestaShop to newer
  * versions in the future. If you wish to customize PrestaShop for your
- * needs please refer to https://www.prestashop.com for more information.
+ * needs please refer to https://devdocs.prestashop.com/ for more information.
  *
- * @author    PrestaShop SA <contact@prestashop.com>
- * @copyright 2007-2020 PrestaShop SA and Contributors
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
  * @license   https://opensource.org/licenses/OSL-3.0 Open Software License (OSL 3.0)
- * International Registered Trademark & Property of PrestaShop SA
  */
 use PrestaShop\PrestaShop\Adapter\ServiceLocator;
 
@@ -534,7 +534,7 @@ abstract class ObjectModelCore implements \PrestaShop\PrestaShop\Core\Foundation
             unset($this->id);
         }
 
-        // @hook actionObject*AddBefore
+        // @hook actionObject<ObjectClassName>AddBefore
         Hook::exec('actionObjectAddBefore', ['object' => $this]);
         Hook::exec('actionObject' . $this->getFullyQualifiedName() . 'AddBefore', ['object' => $this]);
 
@@ -605,7 +605,7 @@ abstract class ObjectModelCore implements \PrestaShop\PrestaShop\Core\Foundation
             }
         }
 
-        // @hook actionObject*AddAfter
+        // @hook actionObject<ObjectClassName>AddAfter
         Hook::exec('actionObjectAddAfter', ['object' => $this]);
         Hook::exec('actionObject' . $this->getFullyQualifiedName() . 'AddAfter', ['object' => $this]);
 
@@ -704,7 +704,7 @@ abstract class ObjectModelCore implements \PrestaShop\PrestaShop\Core\Foundation
      */
     public function update($null_values = false)
     {
-        // @hook actionObject*UpdateBefore
+        // @hook actionObject<ObjectClassName>UpdateBefore
         Hook::exec('actionObjectUpdateBefore', ['object' => $this]);
         Hook::exec('actionObject' . $this->getFullyQualifiedName() . 'UpdateBefore', ['object' => $this]);
 
@@ -812,7 +812,7 @@ abstract class ObjectModelCore implements \PrestaShop\PrestaShop\Core\Foundation
             }
         }
 
-        // @hook actionObject*UpdateAfter
+        // @hook actionObject<ObjectClassName>UpdateAfter
         Hook::exec('actionObjectUpdateAfter', ['object' => $this]);
         Hook::exec('actionObject' . $this->getFullyQualifiedName() . 'UpdateAfter', ['object' => $this]);
 
@@ -828,7 +828,7 @@ abstract class ObjectModelCore implements \PrestaShop\PrestaShop\Core\Foundation
      */
     public function delete()
     {
-        // @hook actionObject*DeleteBefore
+        // @hook actionObject<ObjectClassName>DeleteBefore
         Hook::exec('actionObjectDeleteBefore', ['object' => $this]);
         Hook::exec('actionObject' . $this->getFullyQualifiedName() . 'DeleteBefore', ['object' => $this]);
 
@@ -863,7 +863,7 @@ abstract class ObjectModelCore implements \PrestaShop\PrestaShop\Core\Foundation
             return false;
         }
 
-        // @hook actionObject*DeleteAfter
+        // @hook actionObject<ObjectClassName>DeleteAfter
         Hook::exec('actionObjectDeleteAfter', ['object' => $this]);
         Hook::exec('actionObject' . $this->getFullyQualifiedName() . 'DeleteAfter', ['object' => $this]);
 
@@ -886,6 +886,30 @@ abstract class ObjectModelCore implements \PrestaShop\PrestaShop\Core\Foundation
         }
 
         return $result;
+    }
+
+    /**
+     * Does a soft delete on current object, using the "deleted" field in DB
+     * If the model object has no "deleted" property or no "deleted" definition field it will throw an exception
+     *
+     * @return bool
+     *
+     * @throws PrestaShopDatabaseException
+     * @throws PrestaShopException
+     */
+    public function softDelete()
+    {
+        $definitions = ObjectModel::getDefinition($this);
+
+        if (empty($definitions['fields']['deleted'])) {
+            throw new PrestaShopException('Field "deleted" is missing from definition in object model ' . get_class($this));
+        }
+        if (!array_key_exists('deleted', get_object_vars($this))) {
+            throw new PrestaShopException('Property "deleted" is missing in object model ' . get_class($this));
+        }
+        $this->deleted = 1;
+
+        return $this->update();
     }
 
     /**

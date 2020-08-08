@@ -1,10 +1,11 @@
 /**
- * 2007-2020 PrestaShop SA and Contributors
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
  *
  * NOTICE OF LICENSE
  *
  * This source file is subject to the Open Software License (OSL 3.0)
- * that is bundled with this package in the file LICENSE.txt.
+ * that is bundled with this package in the file LICENSE.md.
  * It is also available through the world-wide-web at this URL:
  * https://opensource.org/licenses/OSL-3.0
  * If you did not receive a copy of the license and are unable to
@@ -15,12 +16,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade PrestaShop to newer
  * versions in the future. If you wish to customize PrestaShop for your
- * needs please refer to https://www.prestashop.com for more information.
+ * needs please refer to https://devdocs.prestashop.com/ for more information.
  *
- * @author    PrestaShop SA <contact@prestashop.com>
- * @copyright 2007-2020 PrestaShop SA and Contributors
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
  * @license   https://opensource.org/licenses/OSL-3.0 Open Software License (OSL 3.0)
- * International Registered Trademark & Property of PrestaShop SA
  */
 
 import Router from '@components/router';
@@ -29,6 +29,7 @@ import {EventEmitter} from '@components/event-emitter';
 import OrderViewEventMap from '@pages/order/view/order-view-event-map';
 import OrderPrices from '@pages/order/view/order-prices';
 import OrderProductRenderer from '@pages/order/view/order-product-renderer';
+import ConfirmModal from '@components/modal';
 
 const {$} = window;
 
@@ -48,6 +49,7 @@ export default class OrderProductAdd {
     this.totalPriceText = $(OrderViewPageMap.productAddTotalPriceText);
     this.invoiceSelect = $(OrderViewPageMap.productAddInvoiceSelect);
     this.freeShippingSelect = $(OrderViewPageMap.productAddFreeShippingSelect);
+    this.productAddMenuBtn = $(OrderViewPageMap.productAddBtn);
     this.available = null;
     this.setupListener();
     this.product = {};
@@ -73,17 +75,18 @@ export default class OrderProductAdd {
     });
     this.quantityInput.on('change keyup', (event) => {
       if (this.available !== null) {
-        const quantity = parseInt(event.target.value ? event.target.value : 0, 10);
-        const available = this.available - quantity;
+        const newQuantity = Number(event.target.value);
+        const remainingAvailable = this.available - newQuantity;
         const availableOutOfStock = this.availableText.data('availableOutOfStock');
-        this.availableText.text(available);
-        this.availableText.toggleClass('text-danger font-weight-bold', available < 0);
-        this.productAddActionBtn.prop('disabled', !availableOutOfStock && available < 0);
-        this.invoiceSelect.prop('disabled', !availableOutOfStock && available < 0);
+        this.availableText.text(remainingAvailable);
+        this.availableText.toggleClass('text-danger font-weight-bold', remainingAvailable < 0);
+        const disableAddActionBtn = newQuantity <= 0 || (remainingAvailable < 0 && !availableOutOfStock);
+        this.productAddActionBtn.prop('disabled', disableAddActionBtn);
+        this.invoiceSelect.prop('disabled', !availableOutOfStock && remainingAvailable < 0);
 
         const taxIncluded = parseFloat(this.priceTaxIncludedInput.val());
         this.totalPriceText.html(
-          this.priceTaxCalculator.calculateTotalPrice(quantity, taxIncluded, this.currencyPrecision),
+          this.priceTaxCalculator.calculateTotalPrice(newQuantity, taxIncluded, this.currencyPrecision),
         );
       }
     });
@@ -117,7 +120,7 @@ export default class OrderProductAdd {
         this.priceTaxCalculator.calculateTotalPrice(quantity, taxIncluded, this.currencyPrecision),
       );
     });
-    this.productAddActionBtn.on('click', (event) => this.addProduct($(event.currentTarget).data('orderId')));
+    this.productAddActionBtn.on('click', (event) => this.handleAddProductWithConfirmationModal(event));
     this.invoiceSelect.on('change', () => this.orderProductRenderer.toggleProductAddNewInvoiceInfo());
   }
 
@@ -182,5 +185,24 @@ export default class OrderProductAdd {
         $.growl.error({message: response.responseJSON.message});
       }
     });
+  }
+
+  handleAddProductWithConfirmationModal(event) {
+    const invoiceId = parseInt(this.invoiceSelect.val(), 10);
+    const orderId = $(event.currentTarget).data('orderId');
+
+    if (invoiceId === 0) {
+      const modal = new ConfirmModal({
+        id: 'modal-confirm-new-invoice',
+        confirmTitle: this.invoiceSelect.data('modal-title'),
+        confirmMessage: this.invoiceSelect.data('modal-body'),
+        confirmButtonLabel: this.invoiceSelect.data('modal-apply'),
+        closeButtonLabel: this.invoiceSelect.data('modal-cancel'),
+      }, () => this.addProduct(orderId));
+
+      modal.show();
+    } else {
+      this.addProduct(orderId);
+    }
   }
 }

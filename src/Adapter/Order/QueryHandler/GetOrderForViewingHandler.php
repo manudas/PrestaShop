@@ -1,11 +1,12 @@
 <?php
 /**
- * 2007-2020 PrestaShop SA and Contributors
+ * Copyright since 2007 PrestaShop SA and Contributors
+ * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
  *
  * NOTICE OF LICENSE
  *
  * This source file is subject to the Open Software License (OSL 3.0)
- * that is bundled with this package in the file LICENSE.txt.
+ * that is bundled with this package in the file LICENSE.md.
  * It is also available through the world-wide-web at this URL:
  * https://opensource.org/licenses/OSL-3.0
  * If you did not receive a copy of the license and are unable to
@@ -16,19 +17,20 @@
  *
  * Do not edit or add to this file if you wish to upgrade PrestaShop to newer
  * versions in the future. If you wish to customize PrestaShop for your
- * needs please refer to https://www.prestashop.com for more information.
+ * needs please refer to https://devdocs.prestashop.com/ for more information.
  *
- * @author    PrestaShop SA <contact@prestashop.com>
- * @copyright 2007-2020 PrestaShop SA and Contributors
+ * @author    PrestaShop SA and Contributors <contact@prestashop.com>
+ * @copyright Since 2007 PrestaShop SA and Contributors
  * @license   https://opensource.org/licenses/OSL-3.0 Open Software License (OSL 3.0)
- * International Registered Trademark & Property of PrestaShop SA
  */
 
 namespace PrestaShop\PrestaShop\Adapter\Order\QueryHandler;
 
 use Address;
 use Carrier;
+use CartRule;
 use Configuration;
+use ConnectionsSource;
 use Context;
 use Country;
 use Currency;
@@ -40,16 +42,18 @@ use Order;
 use OrderInvoice;
 use OrderPayment;
 use OrderSlip;
+use OrderState;
 use PrestaShop\Decimal\Number;
 use PrestaShop\PrestaShop\Adapter\Customer\CustomerDataProvider;
 use PrestaShop\PrestaShop\Adapter\Order\AbstractOrderHandler;
 use PrestaShop\PrestaShop\Core\Domain\Order\Exception\OrderException;
-use PrestaShop\PrestaShop\Core\Domain\Order\Exception\OrderNotFoundException;
 use PrestaShop\PrestaShop\Core\Domain\Order\OrderDocumentType;
 use PrestaShop\PrestaShop\Core\Domain\Order\Query\GetOrderForViewing;
 use PrestaShop\PrestaShop\Core\Domain\Order\Query\GetOrderProductsForViewing;
 use PrestaShop\PrestaShop\Core\Domain\Order\QueryHandler\GetOrderForViewingHandlerInterface;
 use PrestaShop\PrestaShop\Core\Domain\Order\QueryHandler\GetOrderProductsForViewingHandlerInterface;
+use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\LinkedOrderForViewing;
+use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\LinkedOrdersForViewing;
 use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\OrderCarrierForViewing;
 use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\OrderCustomerForViewing;
 use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\OrderDiscountForViewing;
@@ -70,6 +74,8 @@ use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\OrderReturnForViewing;
 use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\OrderReturnsForViewing;
 use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\OrderShippingAddressForViewing;
 use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\OrderShippingForViewing;
+use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\OrderSourceForViewing;
+use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\OrderSourcesForViewing;
 use PrestaShop\PrestaShop\Core\Domain\Order\QueryResult\OrderStatusForViewing;
 use PrestaShop\PrestaShop\Core\Domain\Order\ValueObject\OrderId;
 use PrestaShop\PrestaShop\Core\Image\Parser\ImageTagSourceParserInterface;
@@ -188,26 +194,10 @@ final class GetOrderForViewingHandler extends AbstractOrderHandler implements Ge
             $this->getOrderPayments($order),
             $this->getOrderMessages($order),
             $this->getOrderPrices($order),
-            $this->getOrderDiscounts($order)
+            $this->getOrderDiscounts($order),
+            $this->getOrderSources($order),
+            $this->getLinkedOrders($order)
         );
-    }
-
-    /**
-     * @param OrderId $orderId
-     *
-     * @return Order
-     *
-     * @throws OrderNotFoundException
-     */
-    private function getOrder(OrderId $orderId): Order
-    {
-        $order = new Order($orderId->getValue());
-
-        if ($order->id !== $orderId->getValue()) {
-            throw new OrderNotFoundException($orderId, sprintf('Order with id "%s" was not found.', $orderId->getValue()));
-        }
-
-        return $order;
     }
 
     /**
@@ -672,7 +662,7 @@ final class GetOrderForViewingHandler extends AbstractOrderHandler implements Ge
         $currency = new Currency($order->id_currency);
         $customer = $order->getCustomer();
 
-        $isTaxExcluded = ($this->getOrderTaxCalculationMethod($order) == PS_TAX_EXC);
+        $isTaxExcluded = !$this->isTaxIncludedInOrder($order);
 
         $shipping_refundable_tax_excl = $order->total_shipping_tax_excl;
         $shipping_refundable_tax_incl = $order->total_shipping_tax_incl;
@@ -689,16 +679,17 @@ final class GetOrderForViewingHandler extends AbstractOrderHandler implements Ge
             $wrappingPrice = (float) $order->total_wrapping_tax_excl;
             $shippingPrice = (float) $order->total_shipping_tax_excl;
             $shippingRefundable = max(0, $shipping_refundable_tax_excl);
+            $totalAmount = (float) $order->total_paid_tax_excl;
         } else {
             $productsPrice = (float) $order->total_products_wt;
             $discountsAmount = (float) $order->total_discounts_tax_incl;
             $wrappingPrice = (float) $order->total_wrapping_tax_incl;
             $shippingPrice = (float) $order->total_shipping_tax_incl;
             $shippingRefundable = max(0, $shipping_refundable_tax_incl);
+            $totalAmount = (float) $order->total_paid_tax_incl;
         }
 
         $taxesAmount = $order->total_paid_tax_incl - $order->total_paid_tax_excl;
-        $totalAmount = (float) $order->total_paid_tax_incl;
 
         return new OrderPricesForViewing(
             new Number((string) $productsPrice),
@@ -727,20 +718,85 @@ final class GetOrderForViewingHandler extends AbstractOrderHandler implements Ge
      */
     private function getOrderDiscounts(Order $order): OrderDiscountsForViewing
     {
+        $isTaxIncluded = $this->isTaxIncludedInOrder($order);
         $currency = new Currency($order->id_currency);
         $discounts = $order->getCartRules();
         $discountsForViewing = [];
 
         foreach ($discounts as $discount) {
+            $discountAmount = $isTaxIncluded ? $discount['value'] : $discount['value_tax_excl'];
+
+            $cartRule = new CartRule((int) $discount['id_cart_rule']);
+            if ((int) $cartRule->reduction_currency !== $order->id_currency) {
+                $discountAmount = Tools::convertPriceFull(
+                    $discountAmount,
+                    new Currency((int) $cartRule->reduction_currency),
+                    new Currency((int) $order->id_currency)
+                );
+            }
+
             $discountsForViewing[] = new OrderDiscountForViewing(
                 (int) $discount['id_order_cart_rule'],
                 $discount['name'],
-                new Number((string) $discount['value']),
-                Tools::displayPrice($discount['value'], $currency)
+                new Number((string) $discountAmount),
+                Tools::displayPrice($discountAmount, $currency)
             );
         }
 
         return new OrderDiscountsForViewing($discountsForViewing);
+    }
+
+    /**
+     * @param Order $order
+     *
+     * @return OrderSourcesForViewing
+     */
+    private function getOrderSources(Order $order): OrderSourcesForViewing
+    {
+        $sourcesData = ConnectionsSource::getOrderSources($order->id);
+        $sources = [];
+
+        foreach ($sourcesData as $sourceItem) {
+            $sources[] = new OrderSourceForViewing(
+                $sourceItem['http_referer'],
+                $sourceItem['request_uri'],
+                new DateTimeImmutable($sourceItem['date_add']),
+                $sourceItem['keywords']
+            );
+        }
+
+        return new OrderSourcesForViewing($sources);
+    }
+
+    /**
+     * @return LinkedOrdersForViewing
+     */
+    private function getLinkedOrders(Order $order): LinkedOrdersForViewing
+    {
+        $brothersData = $order->getBrother();
+        $brothers = [];
+        /** @var Order $brotherItem */
+        foreach ($brothersData as $brotherItem) {
+            $isTaxExcluded = !$this->isTaxIncludedInOrder($brotherItem);
+
+            $currency = new Currency($brotherItem->id_currency);
+
+            if ($isTaxExcluded) {
+                $totalAmount = $this->locale->formatPrice($brotherItem->total_paid_tax_excl, $currency->iso_code);
+            } else {
+                $totalAmount = $this->locale->formatPrice($brotherItem->total_paid_tax_incl, $currency->iso_code);
+            }
+
+            $orderState = new OrderState($brotherItem->current_state);
+
+            $brothers[] = new LinkedOrderForViewing(
+                $brotherItem->id,
+                $orderState->name[$this->context->language->getId()],
+                $totalAmount
+            );
+        }
+
+        return new LinkedOrdersForViewing($brothers);
     }
 
     /**
